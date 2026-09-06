@@ -1,0 +1,69 @@
+name: Generar manual SVG
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'generar_manual_svg.py'
+      - 'diseno_maestro_editorial.md'
+      - 'contenido_manual_desempeno.md'
+      - '**/*.svg'
+      - '**/*.zip'
+      - '.github/workflows/generar-manual.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Dependencias Python
+        run: pip install pypdf
+
+      - name: Inkscape y fuentes Noto
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y inkscape fonts-noto-core fonts-noto-extra
+          fc-cache -f -v >/dev/null
+
+      - name: Generar SVG, PDF y previews
+        run: python generar_manual_svg.py
+
+      - name: Verificación básica
+        run: |
+          test -s manual_desempeno_final.svg
+          test -s manual_desempeno_final.pdf
+          test -s reporte_validacion.md
+          test "$(find preview -maxdepth 1 -name 'pagina_*.png' | wc -l)" -eq 30
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          ns='http://www.inkscape.org/namespaces/inkscape'
+          r=ET.parse('manual_desempeno_final.svg').getroot()
+          pages=r.findall('.//{%s}page' % ns)
+          assert len(pages)==30, len(pages)
+          print('inkscape:page =', len(pages))
+          PY
+
+      - name: Guardar entregables en el repositorio
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add generar_manual_svg.py manual_desempeno_final.svg manual_desempeno_final.pdf preview reporte_validacion.md
+          if git diff --cached --quiet; then
+            echo 'Sin cambios de entregables.'
+          else
+            git commit -m 'Generar manual SVG/PDF y previews'
+            git push
+          fi
