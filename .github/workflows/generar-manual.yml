@@ -38,6 +38,12 @@ jobs:
           sudo apt-get install -y inkscape fonts-noto-core fonts-noto-extra
           fc-cache -f -v >/dev/null
 
+      - name: Inventario del paquete de figuras
+        if: hashFiles('figuras_manual_desempeno.zip') != ''
+        run: |
+          echo '=== ARCHIVOS EN figuras_manual_desempeno.zip ==='
+          unzip -Z1 figuras_manual_desempeno.zip
+
       - name: Generar SVG, PDF y previews
         run: python generar_manual_svg.py
 
