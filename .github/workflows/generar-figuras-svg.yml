@@ -1,0 +1,124 @@
+name: Generar figuras SVG editables
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/generar_figuras_manual.py.gz'
+      - '.github/workflows/generar-figuras-svg.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  generar-figuras:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar generador
+        run: |
+          gzip -dc tools/generar_figuras_manual.py.gz > generar_figuras_manual.py
+          python -m py_compile generar_figuras_manual.py
+
+      - name: Generar SVG
+        run: |
+          rm -rf figuras_svg preview_figuras
+          python generar_figuras_manual.py
+          test "$(find figuras_svg -maxdepth 1 -type f -name '*.svg' | wc -l)" -eq 31
+
+      - name: Validar estructura SVG
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import xml.etree.ElementTree as ET
+
+          files = sorted(Path('figuras_svg').glob('*.svg'))
+          assert len(files) == 31, f'Esperadas 31 figuras; encontradas {len(files)}'
+
+          allowed_fonts = {'Noto Sans', 'Noto Serif Display'}
+          for p in files:
+              s = p.read_text(encoding='utf-8')
+              ET.parse(p)
+              for forbidden in ('<image', '<filter', '<mask', '<clipPath'):
+                  assert forbidden not in s, f'{p}: contiene {forbidden}'
+              fonts = set(re.findall(r"font-family:'([^']+)'", s))
+              assert fonts <= allowed_fonts, f'{p}: tipografías no permitidas {fonts - allowed_fonts}'
+              ids = re.findall(r'\sid="([^"]+)"', s)
+              assert len(ids) == len(set(ids)), f'{p}: IDs duplicados'
+              assert '<text' in s or p.name == 'FIG_APERTURA_ANEXOS.svg', f'{p}: falta texto vivo'
+          print(f'Validación XML/Editabilidad OK: {len(files)} SVG')
+          PY
+
+      - name: Validar apertura con Inkscape
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq inkscape fonts-noto-core >/dev/null
+          mkdir -p /tmp/preview_figuras
+          failures=0
+          for f in figuras_svg/*.svg; do
+            out="/tmp/preview_figuras/$(basename "${f%.svg}").png"
+            if ! inkscape "$f" --export-type=png --export-filename="$out" --export-dpi=36 >/tmp/inkscape.log 2>&1; then
+              echo "ERROR al abrir/renderizar $f"
+              cat /tmp/inkscape.log
+              failures=$((failures+1))
+            fi
+          done
+          test "$failures" -eq 0
+          echo "Inkscape OK: 31/31 figuras"
+
+      - name: Crear reporte de generación
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          files = sorted(Path('figuras_svg').glob('*.svg'))
+          lines = [
+              '# Reporte de figuras SVG generadas',
+              '',
+              f'Se generaron y validaron **{len(files)}** activos gráficos SVG nativos editables para Inkscape.',
+              '',
+              '## Criterios aplicados',
+              '',
+              '- Contenido basado en `contenido_manual_desempeno.md`.',
+              '- Sistema visual basado en `diseno_maestro_editorial.md`.',
+              '- Texto conservado como `<text>` / `<tspan>`.',
+              '- Sin raster `<image>`.',
+              '- Sin filtros, máscaras, sombras, degradados ni `clipPath`.',
+              '- Tipografías restringidas a `Noto Sans` y `Noto Serif Display`.',
+              '- IDs únicos y grupos semánticos editables.',
+              '- Apertura/render validado con Inkscape.',
+              '',
+              '## Activos generados',
+              '',
+          ]
+          lines.extend(f'- `{p.name}`' for p in files)
+          lines.extend([
+              '',
+              '## Figuras reconstruidas desde referencia PNG',
+              '',
+              '- `FIG_LOGICA_CONSTRUCCION_CDA.svg`',
+              '- `FIG_RUBRICA_GENERAL_DESEMPENO.svg`',
+              '- `FIG_FLUJO_RECURSOS.svg`',
+              '',
+              '## Nota de contenido fuente',
+              '',
+              'En `FIG_CALCULO_TIEMPO_COMPLEMENTARIO.svg` se conserva literalmente la relación de la fuente `40 × 1,8 = 32` y la equivalencia `1,2 horas cronológicas por hora pedagógica`. No se corrige ni reconcilia silenciosamente porque el contenido maestro es autoritativo.',
+              '',
+          ])
+          Path('reporte_figuras_generadas.md').write_text('\n'.join(lines), encoding='utf-8')
+          PY
+
+      - name: Guardar figuras en el repositorio
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add generar_figuras_manual.py figuras_svg reporte_figuras_generadas.md
+          if git diff --cached --quiet; then
+            echo 'Sin cambios.'
+          else
+            git commit -m 'Generar 31 figuras SVG editables del manual'
+            git push
+          fi
