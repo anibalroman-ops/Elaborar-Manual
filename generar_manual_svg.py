@@ -14,6 +14,17 @@ PW,PH=210.,297.; X0,X1,CW=18.,192.,174.; HR,FTR,SAFE=38.14,274.54,270.; C2,COL=1
 P="#0A2D69"; S="#5B94D2"; L="#88B4E3"; VL="#EEF5FC"; TH="#DDEAF8"; R="#A8C4E6"; W="#FFFFFF"
 SERIF="Noto Serif Display"; SANS="Noto Sans"; BS,BL=2.90,3.78
 OPEN={3,7,13,15,18,25,30}
+# SEMANTIC_PARSER_V2
+OPEN_TITLES={
+    3:"Disposiciones generales",
+    7:"Ciclo institucional de evaluación y calificación",
+    13:"Informe Anual de Actividades y Evidencias Verificables",
+    15:"Metodología e instrumentos de evaluación",
+    18:"Áreas académicas",
+    25:"Retroalimentación",
+    30:"ANEXOS TÉCNICOS",
+}
+PAGE_TITLES={5:"Gobernanza del sistema de evaluación",10:"Convenio de Desempeño Académico"}
 FIGMODE={5:"hero",7:"hero",8:"hero",9:"hero",10:"pair",11:"pair",12:"pair",13:"hero",14:"hero",15:"hero",16:"pair",17:"hero",18:"hero",19:"hero",20:"hero",21:"pair",22:"hero",23:"hero",24:"pair",25:"pair",27:"pair",28:"hero",30:"hero"}
 
 @dataclass
@@ -61,11 +72,26 @@ def norm(s):
     return re.sub(r"[^A-Z0-9]+","_",s.upper()).strip("_")
 
 def atoms(text):
-    ps=[re.sub(r"\s*\n\s*"," ",p.strip()) for p in re.split(r"\n\s*\n",text) if p.strip()]; out=[]; i=0
-    while i<len(ps):
-        if ps[i]=="•" and i+1<len(ps): out.append("• "+ps[i+1]); i+=2
-        else: out.append(ps[i]); i+=1
-    return out
+    out=[]
+    for para in [p.strip() for p in re.split(r"\n\s*\n",text) if p.strip()]:
+        lines=[re.sub(r"\s+"," ",x.strip()) for x in para.splitlines() if x.strip()]
+        buf=[]
+        def flush():
+            if buf:
+                out.append(" ".join(buf)); buf.clear()
+        for line in lines:
+            special=(line=="•" or re.fullmatch(r"\d{1,3}(?:\.\d+)?",line) or
+                     line.startswith("TÍTULO") or re.match(r"^Art(?:ículo|ículos)\b",line,re.I) or
+                     re.match(r"^Art\.\s*\d+",line,re.I) or line in {"(continuación)","DISPOSICIONES TRANSITORIAS","ANÓTESE, COMUNÍQUESE Y REGÍSTRESE"})
+            if special:
+                flush(); out.append(line)
+            else: buf.append(line)
+        flush()
+    final=[]; i=0
+    while i<len(out):
+        if out[i]=="•" and i+1<len(out): final.append("• "+out[i+1]); i+=2
+        else: final.append(out[i]); i+=1
+    return final
 
 def parse(md):
     pat=re.compile(r"<!--\s*SOURCE_PAGE:\s*(\d+)\s*-->"); ms=list(pat.finditer(md)); out=[]
@@ -119,14 +145,14 @@ class Page:
     def __init__(self,n,log):
         self.n=n; self.log=log; self.g=E("g",id=f"p{n:02d}_content",inkscape__groupmode="layer",inkscape__label=f"Página {n:02d}"); self.maxy=0
         self.rect(0,0,PW,PH,W,"none",0,id=f"p{n:02d}_background")
-    def rect(self,x,y,w,h,fill=W,stroke="none",sw=0,rx=0,id=None,parent=None): return E("rect",parent or self.g,x=f(x),y=f(y),width=f(w),height=f(h),fill=fill,stroke=stroke,stroke_width=f(sw),rx=f(rx),id=id)
-    def line(self,x1,y1,x2,y2,stroke=R,sw=.28,parent=None): return E("line",parent or self.g,x1=f(x1),y1=f(y1),x2=f(x2),y2=f(y2),stroke=stroke,stroke_width=f(sw))
+    def rect(self,x,y,w,h,fill=W,stroke="none",sw=0,rx=0,id=None,parent=None): return E("rect",(parent if parent is not None else self.g),x=f(x),y=f(y),width=f(w),height=f(h),fill=fill,stroke=stroke,stroke_width=f(sw),rx=f(rx),id=id)
+    def line(self,x1,y1,x2,y2,stroke=R,sw=.28,parent=None): return E("line",(parent if parent is not None else self.g),x1=f(x1),y1=f(y1),x2=f(x2),y2=f(y2),stroke=stroke,stroke_width=f(sw))
     def text(self,x,y,t,sz=BS,fam=SANS,wt=400,fill=P,anchor="start",parent=None,spacing=None):
-        q=E("text",parent or self.g,x=f(x),y=f(y),font_family=fam,font_size=f(sz),font_weight=str(wt),fill=fill,text_anchor=anchor)
+        q=E("text",(parent if parent is not None else self.g),x=f(x),y=f(y),font_family=fam,font_size=f(sz),font_weight=str(wt),fill=fill,text_anchor=anchor)
         if spacing is not None:q.set("letter-spacing",f(spacing))
         sp=E("tspan",q,x=f(x),y=f(y)); sp.text=t; self.maxy=max(self.maxy,y+sz); return q
     def wrapped(self,x,y,w,t,sz=BS,line=BL,fam=SANS,wt=400,fill=P,parent=None):
-        ls=wrap(t,w,sz,fam,wt); q=E("text",parent or self.g,x=f(x),y=f(y),font_family=fam,font_size=f(sz),font_weight=str(wt),fill=fill)
+        ls=wrap(t,w,sz,fam,wt); q=E("text",(parent if parent is not None else self.g),x=f(x),y=f(y),font_family=fam,font_size=f(sz),font_weight=str(wt),fill=fill)
         for i,s in enumerate(ls): sp=E("tspan",q,x=f(x),y=f(y+i*line)); sp.text=s
         end=y+max(line,len(ls)*line); self.maxy=max(self.maxy,end); return end
     def header(self,section=None):
@@ -144,8 +170,8 @@ class Page:
     def opening(self,label,title,intro=None,num=None,y=49):
         if label:self.text(18,y,label.upper(),3.6,wt=700,fill=S,spacing=.35); y+=9
         tx,tw=(52,140) if num else (18,174)
-        if num:self.text(18,y+18,num,26,SERIF,500)
-        ye=self.wrapped(tx,y+(4 if num else 0),tw,title,9.8 if num else 8.8,10.6 if num else 9.7,SERIF,600); y=max(ye,y+32 if num else ye)+5; self.line(18,y,46,y,S,.9); y+=8
+        if num:self.text(18,y+22,num,31.5,SERIF,500)
+        ye=self.wrapped(tx,y+(4 if num else 0),tw,title,11.85 if num else 9.4,13.1 if num else 10.3,SERIF,600); y=max(ye,y+37 if num else ye)+5; self.line(18,y,46,y,S,.9); y+=8
         if intro:y=self.wrapped(18,y,120 if self.n in OPEN else 174,intro,3.05,4.05)+5
         return y
     def article(self,x,y,w,h):
@@ -155,9 +181,12 @@ class Page:
             self.rect(x,y+.7,1.8,1.8,S,"none",0,.9); y=self.wrapped(x+4.2,y,w-4.2,item.lstrip("• "),2.72,3.4)+2
         return y
     def flow(self,a,y=46,two=True,maxy=SAFE):
-        cols=[(18,COL),(108,COL)] if two else [(18,174)]; ci=0; x,w=cols[0]
-        for atom in a:
-            k=kind(atom); est=height(atom,w,k)
+        cols=[(18,COL),(108,COL)] if two else [(18,174)]; ci=0; x,w=cols[0]; i=0
+        while i<len(a):
+            atom=a[i]; k=kind(atom)
+            if k=="article" and i+1<len(a) and kind(a[i+1]) in {"label","title"} and len(a[i+1])<=72:
+                atom=atom+" · "+a[i+1]; i+=1
+            est=height(atom,w,k)
             if y+est>maxy and ci+1<len(cols): ci+=1; x,w=cols[ci]; y=46 if two else y
             elif y+est>maxy:self.log.add("ERROR",self.n,"OVERFLOW_TEXT",atom[:90])
             if k=="article": y=self.article(x,y,w,atom)+4.2
@@ -166,6 +195,7 @@ class Page:
             elif k=="bullet": y=self.bullets(x,y,w,[atom])+.7
             elif k=="number": self.text(x,y+4.5,atom,5,SERIF,500,S); y+=8
             else:y=self.wrapped(x,y,w,atom)+3.3
+            i+=1
         return y
     def figure(self,path,ref,x,y,w,h,idx):
         try:
@@ -181,7 +211,8 @@ def kind(s):
     if s.startswith("•") or re.match(r"^\d+\.\s+",s):return "bullet"
     if re.match(r"^Art(?:ículo|ículos)\b",s,re.I) or re.match(r"^Art\.\s*\d+",s,re.I):return "article"
     if re.fullmatch(r"\d{1,3}(?:\.\d+)?",s):return "number"
-    if s.startswith("TÍTULO") or (len(s)<70 and s.upper()==s and any(c.isalpha() for c in s)):return "title"
+    if s.startswith("TÍTULO"):return "label"
+    if len(s)<70 and s.upper()==s and any(c.isalpha() for c in s):return "title"
     if len(s)<48 and (s.endswith(":") or re.match(r"^[A-ZÁÉÍÓÚÑ][^.!?]{2,45}$",s)):return "label"
     return "body"
 def height(s,w,k):
@@ -200,22 +231,71 @@ def split_intro(a):
         if len(s)>90:cut=i+1;break
     cut=max(1,min(cut,5));return a[:cut],a[cut:]
 
+def consume_heading(a,page,title,with_num=False):
+    i=0; num=None; label=""; intro=None
+    if with_num and i<len(a) and re.fullmatch(r"\d{1,2}",a[i]): num=a[i]; i+=1
+    if i<len(a) and a[i].startswith("TÍTULO"): label=a[i]; i+=1
+    if i<len(a):
+        src=re.sub(r"\s+"," ",a[i]).strip(); ttl=re.sub(r"\s+"," ",title).strip()
+        if src.casefold().startswith(ttl.casefold()):
+            intro=src[len(ttl):].strip() or None; i+=1
+    if intro is None and i<len(a) and kind(a[i])=="body" and len(a[i])>80:
+        intro=a[i]; i+=1
+    return num,label,title,intro,i
+
+def toc_items(raw):
+    ls=[re.sub(r"\s+"," ",x.strip()) for x in raw.splitlines() if x.strip()]
+    if ls and ls[0].casefold()=="contenido": ls=ls[1:]
+    items=[]; buf=[]
+    for x in ls:
+        if re.fullmatch(r"\d{2,3}",x) and buf:
+            label=buf[0] if buf[0].startswith("Título") else ""
+            title=" ".join(buf[1:] if label else buf); items.append((label,title,x)); buf=[]
+        else: buf.append(x)
+    return items," ".join(buf)
+
 def render(b,assets,log):
     p=Page(b.page,log); a=b.atoms[:]
-    if b.page==1:p.cover(a);return p
+    if b.page==1:
+        lines=[re.sub(r"\s+"," ",x.strip()) for x in b.raw.splitlines() if x.strip()]
+        p.cover(lines); return p
     p.header(next((x for x in a[:5] if x.startswith("TÍTULO")),None)); p.footer()
     if b.page==2:
-        y=p.opening("","Contenido",y=51); p.flow(a[1:] if a and a[0].lower().startswith("contenido") else a,y+2); return p
+        y=p.opening("","Contenido",y=51); items,note=toc_items(b.raw)
+        for j,(label,title,folio) in enumerate(items[:12]):
+            col=0 if j<6 else 1; row=j if j<6 else j-6; x=18 if col==0 else 108; w=84; yy=84+row*27.2
+            if label:p.text(x,yy,label.upper(),2.35,wt=700,fill=S,spacing=.18)
+            p.wrapped(x,yy+5.2,w-13,title,3.15,3.8,SERIF,600)
+            p.text(x+w,yy+6.2,folio,5.2,SERIF,600,S,"end")
+            p.line(x,yy+22.2,x+w,yy+22.2,R,.24)
+        if note:
+            p.rect(18,247,174,18,VL,"none",0,2)
+            p.wrapped(24,252,162,note,2.72,3.35,fill=P)
+        return p
     y=46; used=0
-    if b.page in OPEN:
-        num=a[0] if a and re.fullmatch(r"\d{1,2}",a[0]) else None; i=1 if num else 0; label=a[i] if i<len(a) and a[i].startswith("TÍTULO") else ""; i+=1 if label else 0
-        title=a[i] if i<len(a) else ""; i+=1 if title else 0; intro=a[i] if i<len(a) and len(a[i])>70 else None; i+=1 if intro else 0
-        if title:y=p.opening(label,title,intro,num)+3; used=i
+    if b.page in OPEN_TITLES:
+        num,label,title,intro,used=consume_heading(a,b.page,OPEN_TITLES[b.page],True)
+        y=p.opening(label,title,intro,num)+3
+    elif b.page in PAGE_TITLES:
+        num,label,title,intro,used=consume_heading(a,b.page,PAGE_TITLES[b.page],False)
+        y=p.opening(label,title,intro,None,y=48)+3
+    if b.page==3:
+        rem=a[used:]; items=[]; i=0
+        while i<len(rem):
+            if kind(rem[i])=="article":
+                art=rem[i]; title=rem[i+1] if i+1<len(rem) else ""; folio=rem[i+2] if i+2<len(rem) and kind(rem[i+2])=="number" else ""
+                items.append((art,title,folio)); i+=3 if folio else 2
+            else:i+=1
+        for j,(art,title,folio) in enumerate(items[:4]):
+            x=18 if j%2==0 else 108; yy=y+(j//2)*48; p.rect(x,yy,84,40,VL,"none",0,2.2)
+            p.text(x+6,yy+9,art.upper(),2.55,wt=700,fill=S,spacing=.18); p.wrapped(x+6,yy+16,60,title,3.8,4.6,SERIF,600)
+            if folio:p.text(x+76,yy+31,folio,6.4,SERIF,600,S,"end")
+        return p
     found=[]
     for ref in b.figures:
         q=assets.find(ref)
         if q:found.append((ref,q))
-        else:log.add("WARN",b.page,"FIGURA_FALTANTE",ref)
+        else:log.add("WARN",b.page,"FIGURA_DIFERIDA",ref)
     rem=a[used:]; mode=FIGMODE.get(b.page)
     if mode and found:
         intro,rest=split_intro(rem); y=p.flow(intro,y,False,min(118,SAFE))+4 if intro else y
@@ -278,7 +358,7 @@ def report(path,blocks,assets,log,svg,pdf,preview):
     miss=[];found=[]
     for b in blocks:
         for ref in b.figures:(found if assets.find(ref) else miss).append((b.page,ref))
-    out=["# Reporte de validación — Manual de Desempeño Académico","",f"- Páginas procesadas: **{len(blocks)}**.",f"- SVG: **{'OK' if svg.exists() else 'NO'}**.",f"- PDF: **{'OK' if pdf.exists() else 'NO'}**.",f"- Previews: **{len(list(preview.glob('*.png'))) if preview.exists() else 0}**.",f"- Figuras encontradas: **{len(found)} / {len(found)+len(miss)}**.","","## Figuras faltantes",""]
+    out=["# Reporte de validación — Manual de Desempeño Académico","",f"- Páginas procesadas: **{len(blocks)}**.",f"- SVG: **{'OK' if svg.exists() else 'NO'}**.",f"- PDF: **{'OK' if pdf.exists() else 'NO'}**.",f"- Previews: **{len(list(preview.glob('*.png'))) if preview.exists() else 0}**.",f"- Figuras integradas automáticamente: **{len(found)} / {len(found)+len(miss)}**.","- Estado editorial: **la maquetación textual continúa aunque las figuras estén diferidas para inserción manual**.","","## Figuras pendientes de inserción manual",""]
     out += [f"- Página {p:02d}: `{r}`" for p,r in miss] or ["- Ninguna."]; out += ["","## Incidencias",""]
     out += [f"- **{i.sev}** · {'Página '+str(i.page) if i.page else 'Documento'} · `{i.code}` — {i.msg}" for i in log.items] or ["- Sin incidencias automáticas."]
     out += ["","## Controles","","- SVG multipágina A4 con `inkscape:page`.","- Texto en `<text>/<tspan>`.","- Figuras SVG vectoriales, sin rasterización por el generador.","- Retícula 18–192 mm y pie bajo 274,54 mm.","- Overflow y figuras faltantes se reportan; no se reduce tipografía silenciosamente.",""]
