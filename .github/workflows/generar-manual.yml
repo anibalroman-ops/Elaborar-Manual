@@ -38,6 +38,69 @@ jobs:
           sudo apt-get install -y inkscape fonts-noto-core fonts-noto-extra
           fc-cache -f -v >/dev/null
 
+      - name: Mejorar lectura semántica y composición editorial
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('generar_manual_svg.py')
+          s = p.read_text(encoding='utf-8')
+          if '# SEMANTIC_PARSER_V2' in s:
+              print('Parser semántico v2 ya aplicado.')
+              raise SystemExit(0)
+
+          def rep(old, new, name):
+              global s
+              if old not in s:
+                  raise SystemExit(f'No se encontró bloque para parche: {name}')
+              s = s.replace(old, new, 1)
+
+          rep(
+          '''OPEN={3,7,13,15,18,25,30}\nFIGMODE={5:"hero",7:"hero",8:"hero",9:"hero",10:"pair",11:"pair",12:"pair",13:"hero",14:"hero",15:"hero",16:"pair",17:"hero",18:"hero",19:"hero",20:"hero",21:"pair",22:"hero",23:"hero",24:"pair",25:"pair",27:"pair",28:"hero",30:"hero"}''',
+          '''OPEN={3,7,13,15,18,25,30}\n# SEMANTIC_PARSER_V2\nOPEN_TITLES={\n    3:"Disposiciones generales",\n    7:"Ciclo institucional de evaluación y calificación",\n    13:"Informe Anual de Actividades y Evidencias Verificables",\n    15:"Metodología e instrumentos de evaluación",\n    18:"Áreas académicas",\n    25:"Retroalimentación",\n    30:"ANEXOS TÉCNICOS",\n}\nPAGE_TITLES={5:"Gobernanza del sistema de evaluación",10:"Convenio de Desempeño Académico"}\nFIGMODE={5:"hero",7:"hero",8:"hero",9:"hero",10:"pair",11:"pair",12:"pair",13:"hero",14:"hero",15:"hero",16:"pair",17:"hero",18:"hero",19:"hero",20:"hero",21:"pair",22:"hero",23:"hero",24:"pair",25:"pair",27:"pair",28:"hero",30:"hero"}''',
+          'constantes semánticas')
+
+          rep(
+          '''def atoms(text):\n    ps=[re.sub(r"\\s*\\n\\s*"," ",p.strip()) for p in re.split(r"\\n\\s*\\n",text) if p.strip()]; out=[]; i=0\n    while i<len(ps):\n        if ps[i]=="•" and i+1<len(ps): out.append("• "+ps[i+1]); i+=2\n        else: out.append(ps[i]); i+=1\n    return out''',
+          '''def atoms(text):\n    out=[]\n    for para in [p.strip() for p in re.split(r"\\n\\s*\\n",text) if p.strip()]:\n        lines=[re.sub(r"\\s+"," ",x.strip()) for x in para.splitlines() if x.strip()]\n        buf=[]\n        def flush():\n            if buf:\n                out.append(" ".join(buf)); buf.clear()\n        for line in lines:\n            special=(line=="•" or re.fullmatch(r"\\d{1,3}(?:\\.\\d+)?",line) or\n                     line.startswith("TÍTULO") or re.match(r"^Art(?:ículo|ículos)\\b",line,re.I) or\n                     re.match(r"^Art\\.\\s*\\d+",line,re.I) or line in {"(continuación)","DISPOSICIONES TRANSITORIAS","ANÓTESE, COMUNÍQUESE Y REGÍSTRESE"})\n            if special:\n                flush(); out.append(line)\n            else: buf.append(line)\n        flush()\n    final=[]; i=0\n    while i<len(out):\n        if out[i]=="•" and i+1<len(out): final.append("• "+out[i+1]); i+=2\n        else: final.append(out[i]); i+=1\n    return final''',
+          'parser de átomos')
+
+          s = s.replace('parent or self.g', '(parent if parent is not None else self.g)')
+
+          rep(
+          '''        if num:self.text(18,y+18,num,26,SERIF,500)\n        ye=self.wrapped(tx,y+(4 if num else 0),tw,title,9.8 if num else 8.8,10.6 if num else 9.7,SERIF,600); y=max(ye,y+32 if num else ye)+5; self.line(18,y,46,y,S,.9); y+=8''',
+          '''        if num:self.text(18,y+22,num,31.5,SERIF,500)\n        ye=self.wrapped(tx,y+(4 if num else 0),tw,title,11.85 if num else 9.4,13.1 if num else 10.3,SERIF,600); y=max(ye,y+37 if num else ye)+5; self.line(18,y,46,y,S,.9); y+=8''',
+          'jerarquía de apertura')
+
+          rep(
+          '''    def flow(self,a,y=46,two=True,maxy=SAFE):\n        cols=[(18,COL),(108,COL)] if two else [(18,174)]; ci=0; x,w=cols[0]\n        for atom in a:\n            k=kind(atom); est=height(atom,w,k)\n            if y+est>maxy and ci+1<len(cols): ci+=1; x,w=cols[ci]; y=46 if two else y\n            elif y+est>maxy:self.log.add("ERROR",self.n,"OVERFLOW_TEXT",atom[:90])\n            if k=="article": y=self.article(x,y,w,atom)+4.2\n            elif k=="title": y=self.wrapped(x,y,w,atom,5.25,6,SERIF,600)+4\n            elif k=="label": y=self.wrapped(x,y,w,atom,2.75,3.35,wt=700,fill=S)+2.7\n            elif k=="bullet": y=self.bullets(x,y,w,[atom])+.7\n            elif k=="number": self.text(x,y+4.5,atom,5,SERIF,500,S); y+=8\n            else:y=self.wrapped(x,y,w,atom)+3.3\n        return y''',
+          '''    def flow(self,a,y=46,two=True,maxy=SAFE):\n        cols=[(18,COL),(108,COL)] if two else [(18,174)]; ci=0; x,w=cols[0]; i=0\n        while i<len(a):\n            atom=a[i]; k=kind(atom)\n            if k=="article" and i+1<len(a) and kind(a[i+1]) in {"label","title"} and len(a[i+1])<=72:\n                atom=atom+" · "+a[i+1]; i+=1\n            est=height(atom,w,k)\n            if y+est>maxy and ci+1<len(cols): ci+=1; x,w=cols[ci]; y=46 if two else y\n            elif y+est>maxy:self.log.add("ERROR",self.n,"OVERFLOW_TEXT",atom[:90])\n            if k=="article": y=self.article(x,y,w,atom)+4.2\n            elif k=="title": y=self.wrapped(x,y,w,atom,5.25,6,SERIF,600)+4\n            elif k=="label": y=self.wrapped(x,y,w,atom,2.75,3.35,wt=700,fill=S)+2.7\n            elif k=="bullet": y=self.bullets(x,y,w,[atom])+.7\n            elif k=="number": self.text(x,y+4.5,atom,5,SERIF,500,S); y+=8\n            else:y=self.wrapped(x,y,w,atom)+3.3\n            i+=1\n        return y''',
+          'flujo con encabezados de artículo')
+
+          rep(
+          '''    if s.startswith("TÍTULO") or (len(s)<70 and s.upper()==s and any(c.isalpha() for c in s)):return "title"''',
+          '''    if s.startswith("TÍTULO"):return "label"\n    if len(s)<70 and s.upper()==s and any(c.isalpha() for c in s):return "title"''',
+          'clasificación de título')
+
+          rep(
+          '''def split_intro(a):\n    if not a:return [],[]\n    cut=1\n    for i,s in enumerate(a[:7]):\n        if kind(s) in {"number","title","article"}:cut=i+1;continue\n        if len(s)>90:cut=i+1;break\n    cut=max(1,min(cut,5));return a[:cut],a[cut:]\n\ndef render(b,assets,log):''',
+          '''def split_intro(a):\n    if not a:return [],[]\n    cut=1\n    for i,s in enumerate(a[:7]):\n        if kind(s) in {"number","title","article"}:cut=i+1;continue\n        if len(s)>90:cut=i+1;break\n    cut=max(1,min(cut,5));return a[:cut],a[cut:]\n\ndef consume_heading(a,page,title,with_num=False):\n    i=0; num=None; label=""; intro=None\n    if with_num and i<len(a) and re.fullmatch(r"\\d{1,2}",a[i]): num=a[i]; i+=1\n    if i<len(a) and a[i].startswith("TÍTULO"): label=a[i]; i+=1\n    if i<len(a):\n        src=re.sub(r"\\s+"," ",a[i]).strip(); ttl=re.sub(r"\\s+"," ",title).strip()\n        if src.casefold().startswith(ttl.casefold()):\n            intro=src[len(ttl):].strip() or None; i+=1\n    if intro is None and i<len(a) and kind(a[i])=="body" and len(a[i])>80:\n        intro=a[i]; i+=1\n    return num,label,title,intro,i\n\ndef toc_items(raw):\n    ls=[re.sub(r"\\s+"," ",x.strip()) for x in raw.splitlines() if x.strip()]\n    if ls and ls[0].casefold()=="contenido": ls=ls[1:]\n    items=[]; buf=[]\n    for x in ls:\n        if re.fullmatch(r"\\d{2,3}",x) and buf:\n            label=buf[0] if buf[0].startswith("Título") else ""\n            title=" ".join(buf[1:] if label else buf); items.append((label,title,x)); buf=[]\n        else: buf.append(x)\n    return items," ".join(buf)\n\ndef render(b,assets,log):''',
+          'helpers semánticos')
+
+          old_render='''def render(b,assets,log):\n    p=Page(b.page,log); a=b.atoms[:]\n    if b.page==1:p.cover(a);return p\n    p.header(next((x for x in a[:5] if x.startswith("TÍTULO")),None)); p.footer()\n    if b.page==2:\n        y=p.opening("","Contenido",y=51); p.flow(a[1:] if a and a[0].lower().startswith("contenido") else a,y+2); return p\n    y=46; used=0\n    if b.page in OPEN:\n        num=a[0] if a and re.fullmatch(r"\\d{1,2}",a[0]) else None; i=1 if num else 0; label=a[i] if i<len(a) and a[i].startswith("TÍTULO") else ""; i+=1 if label else 0\n        title=a[i] if i<len(a) else ""; i+=1 if title else 0; intro=a[i] if i<len(a) and len(a[i])>70 else None; i+=1 if intro else 0\n        if title:y=p.opening(label,title,intro,num)+3; used=i\n    found=[]\n    for ref in b.figures:\n        q=assets.find(ref)\n        if q:found.append((ref,q))\n        else:log.add("WARN",b.page,"FIGURA_FALTANTE",ref)\n    rem=a[used:]; mode=FIGMODE.get(b.page)\n    if mode and found:\n        intro,rest=split_intro(rem); y=p.flow(intro,y,False,min(118,SAFE))+4 if intro else y\n        if mode=="hero":\n            h=min(104,max(62,205-y)); y=p.figure(found[0][1],found[0][0],18,y,174,h,1)+7\n            for j,(ref,q) in enumerate(found[1:],2):\n                if y+55<SAFE:y=p.figure(q,ref,18,y,174,52,j)+6\n        elif len(found)==1:y=p.figure(found[0][1],found[0][0],18,y,174,67,1)+7\n        else:\n            y=max(p.figure(found[0][1],found[0][0],18,y,84,67,1),p.figure(found[1][1],found[1][0],108,y,84,67,2))+7\n        if rest:p.flow(rest,y)\n    else:p.flow(rem,y)\n    return p'''
+
+          new_render='''def render(b,assets,log):\n    p=Page(b.page,log); a=b.atoms[:]\n    if b.page==1:\n        lines=[re.sub(r"\\s+"," ",x.strip()) for x in b.raw.splitlines() if x.strip()]\n        p.cover(lines); return p\n    p.header(next((x for x in a[:5] if x.startswith("TÍTULO")),None)); p.footer()\n    if b.page==2:\n        y=p.opening("","Contenido",y=51); items,note=toc_items(b.raw)\n        for j,(label,title,folio) in enumerate(items[:12]):\n            col=0 if j<6 else 1; row=j if j<6 else j-6; x=18 if col==0 else 108; w=84; yy=84+row*27.2\n            if label:p.text(x,yy,label.upper(),2.35,wt=700,fill=S,spacing=.18)\n            p.wrapped(x,yy+5.2,w-13,title,3.15,3.8,SERIF,600)\n            p.text(x+w,yy+6.2,folio,5.2,SERIF,600,S,"end")\n            p.line(x,yy+22.2,x+w,yy+22.2,R,.24)\n        if note:\n            p.rect(18,247,174,18,VL,"none",0,2)\n            p.wrapped(24,252,162,note,2.72,3.35,fill=P)\n        return p\n    y=46; used=0\n    if b.page in OPEN_TITLES:\n        num,label,title,intro,used=consume_heading(a,b.page,OPEN_TITLES[b.page],True)\n        y=p.opening(label,title,intro,num)+3\n    elif b.page in PAGE_TITLES:\n        num,label,title,intro,used=consume_heading(a,b.page,PAGE_TITLES[b.page],False)\n        y=p.opening(label,title,intro,None,y=48)+3\n    if b.page==3:\n        rem=a[used:]; items=[]; i=0\n        while i<len(rem):\n            if kind(rem[i])=="article":\n                art=rem[i]; title=rem[i+1] if i+1<len(rem) else ""; folio=rem[i+2] if i+2<len(rem) and kind(rem[i+2])=="number" else ""\n                items.append((art,title,folio)); i+=3 if folio else 2\n            else:i+=1\n        for j,(art,title,folio) in enumerate(items[:4]):\n            x=18 if j%2==0 else 108; yy=y+(j//2)*48; p.rect(x,yy,84,40,VL,"none",0,2.2)\n            p.text(x+6,yy+9,art.upper(),2.55,wt=700,fill=S,spacing=.18); p.wrapped(x+6,yy+16,60,title,3.8,4.6,SERIF,600)\n            if folio:p.text(x+76,yy+31,folio,6.4,SERIF,600,S,"end")\n        return p\n    found=[]\n    for ref in b.figures:\n        q=assets.find(ref)\n        if q:found.append((ref,q))\n        else:log.add("WARN",b.page,"FIGURA_DIFERIDA",ref)\n    rem=a[used:]; mode=FIGMODE.get(b.page)\n    if mode and found:\n        intro,rest=split_intro(rem); y=p.flow(intro,y,False,min(118,SAFE))+4 if intro else y\n        if mode=="hero":\n            h=min(104,max(62,205-y)); y=p.figure(found[0][1],found[0][0],18,y,174,h,1)+7\n            for j,(ref,q) in enumerate(found[1:],2):\n                if y+55<SAFE:y=p.figure(q,ref,18,y,174,52,j)+6\n        elif len(found)==1:y=p.figure(found[0][1],found[0][0],18,y,174,67,1)+7\n        else:\n            y=max(p.figure(found[0][1],found[0][0],18,y,84,67,1),p.figure(found[1][1],found[1][0],108,y,84,67,2))+7\n        if rest:p.flow(rest,y)\n    else:p.flow(rem,y)\n    return p'''
+          rep(old_render,new_render,'render semántico')
+
+          rep(
+          '''    out=["# Reporte de validación — Manual de Desempeño Académico","",f"- Páginas procesadas: **{len(blocks)}**.",f"- SVG: **{'OK' if svg.exists() else 'NO'}**.",f"- PDF: **{'OK' if pdf.exists() else 'NO'}**.",f"- Previews: **{len(list(preview.glob('*.png'))) if preview.exists() else 0}**.",f"- Figuras encontradas: **{len(found)} / {len(found)+len(miss)}**.","","## Figuras faltantes",""]\n    out += [f"- Página {p:02d}: `{r}`" for p,r in miss] or ["- Ninguna."]; out += ["","## Incidencias",""]''',
+          '''    out=["# Reporte de validación — Manual de Desempeño Académico","",f"- Páginas procesadas: **{len(blocks)}**.",f"- SVG: **{'OK' if svg.exists() else 'NO'}**.",f"- PDF: **{'OK' if pdf.exists() else 'NO'}**.",f"- Previews: **{len(list(preview.glob('*.png'))) if preview.exists() else 0}**.",f"- Figuras integradas automáticamente: **{len(found)} / {len(found)+len(miss)}**.","- Estado editorial: **la maquetación textual continúa aunque las figuras estén diferidas para inserción manual**.","","## Figuras pendientes de inserción manual",""]\n    out += [f"- Página {p:02d}: `{r}`" for p,r in miss] or ["- Ninguna."]; out += ["","## Incidencias",""]''',
+          'reporte de figuras diferidas')
+
+          p.write_text(s,encoding='utf-8')
+          print('Parser semántico v2 aplicado al generador.')
+          PY
+
       - name: Inventario del paquete de figuras
         if: hashFiles('figuras_manual_desempeno.zip') != ''
         run: |
@@ -70,6 +133,6 @@ jobs:
           if git diff --cached --quiet; then
             echo 'Sin cambios de entregables.'
           else
-            git commit -m 'Generar manual SVG/PDF y previews'
+            git commit -m 'Mejorar composición editorial del manual sin figuras'
             git push
           fi
